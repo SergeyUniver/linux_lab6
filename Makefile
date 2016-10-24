@@ -1,4 +1,4 @@
-NAME=remainer
+NAME=lab6
 obj-m += $(NAME).o
 all:
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
