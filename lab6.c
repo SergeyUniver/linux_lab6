@@ -11,7 +11,7 @@ static struct timer_list my_timer;
 static int timer_value;
 static int time_period = 4;
 
-static void restart_timer()
+static void restart_timer(void)
 {
 	if (timer_value > 0)
 	{
