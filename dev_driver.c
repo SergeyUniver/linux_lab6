@@ -1,63 +1,85 @@
-#include <linux/kernel.h> /* Для printk() и т.д. */
-#include <linux/module.h> /* Эта частичка древней магии, которая оживляет модули */
-#include <linux/init.h> /* Определения макросов */
+#include <linux/module.h>
+#include <linux/printk.h>
+#include <linux/kobject.h>
+#include <linux/sysfs.h>
+#include <linux/init.h>
 #include <linux/fs.h>
-#include <asm/uaccess.h> /* put_user */
-#include <linux/interrupt.h>
-#include <linux/hrtimer.h>
-#include <linux/sched.h>
+#include <linux/string.h>
 
+static struct kobject *remainer_kobject;
+static struct timer_list my_timer;
+static int timer_value;
+static int time_period = 4;
 
-
-// Ниже мы задаём информацию о модуле, которую можно будет увидеть с помощью Modinfo
-MODULE_LICENSE( "GPL" );
-MODULE_AUTHOR( "Matvei Nazaruk" );
-MODULE_DESCRIPTION( "Test module" );
-MODULE_SUPPORTED_DEVICE( "timer_out" );
-
-#define SUCCESS 0
-MODULE_SUPPORTED_DEVICE( "test" ); 
-
-#define SUCCESS 0
-#define DEVICE_NAME "test"
-
-
-static enum hrtimer_restart timer_function (struct hrtimer * unused)
+static void restart_timer()
 {
-
-    if (tick != 0) {
-        printk( "%s\n", text);
-        kt_periode = ktime_set(tick, 0); 
-    }
-    hrtimer_forward_now(& htimer, kt_periode);
-    return HRTIMER_RESTART;
+	if (timer_value > 0)
+	{
+		mod_timer( &my_timer, jiffies + msecs_to_jiffies(time_period * 1000) );
+		timer_value--;
+	}
 }
 
-static void timer_init (void)
+static void my_timer_callback( unsigned long data )
 {
-    kt_periode = ktime_set(1, 0); 
-    hrtimer_init (& htimer, CLOCK_REALTIME, HRTIMER_MODE_REL);
-    htimer.function = timer_function;
-    hrtimer_start(& htimer, kt_periode, HRTIMER_MODE_REL);
+	printk(KERN_ERR "Hello\n");
+	restart_timer();
 }
 
-
-static int __init test_init (void)
+static ssize_t timer_value_show(struct kobject *kobj, struct kobj_attribute *attr,
+                      char *buf)
 {
-    printk( KERN_ALERT "TEST driver loaded!\n" );
-    timer_init();
-	hrtimer_cancel(& htimer);
-    major_number = register_chrdev( 0, DEVICE_NAME, &fops );
-    if ( major_number < 0 ) {
-        printk( "Registering the character device failed with %d\n", major_number );
-        return major_number;
-    }
-    printk( "Please, create a dev file with 'mknod /dev/test c %d 0'.\n", major_number );
-    return SUCCESS;
+	return sprintf(buf, "%d\n", timer_value);
+}
+
+static ssize_t timer_value_store(struct kobject *kobj, struct kobj_attribute *attr,
+					char *buf, size_t count)
+{
+	printk(KERN_ERR "Hello from store\n");
+	sscanf(buf, "%du", &timer_value);
+	restart_timer();
+	return count;
 }
 
 
+static struct kobj_attribute timer_value_attribute =__ATTR(timer, 0666, timer_value_show,
+													timer_value_store);
 
-// Указываем наши функции загрузки и выгрузки
-module_init( test_init );
-module_exit( test_exit );
+static int __init mymodule_init (void)
+{
+	int error = 0;
+	
+	printk(KERN_ERR "Module remainer_kobject initialized successfully \n");
+
+	remainer_kobject = kobject_create_and_add("remainer_kobject",
+											 kernel_kobj);
+	if(!remainer_kobject)
+			return -ENOMEM;
+
+	error = sysfs_create_file(remainer_kobject, &timer_value_attribute.attr);
+	if (error) {
+			printk(KERN_ERR "failed to create the timer file in /sys/kernel/remainer_kobject \n");
+	}
+
+	setup_timer( &my_timer, my_timer_callback, 0 );
+	
+	return error;
+}
+
+static void __exit mymodule_exit (void)
+{
+	int ret;
+	printk(KERN_ERR "Module remainer_kobject un initialized successfully \n");
+	kobject_put(remainer_kobject);
+	ret = del_timer( &my_timer );
+	if (ret) 
+		printk(KERN_ERR "The timer is still in use...\n");
+}
+
+module_init(mymodule_init);
+module_exit(mymodule_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Mochulsky Sergey");
+MODULE_DESCRIPTION("Timer.");
+MODULE_VERSION("1.0.0.0");
